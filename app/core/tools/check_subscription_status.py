@@ -2,6 +2,7 @@
 Tool to check the subscription status of a customer.
 """
 
+from typing import Dict, Any
 from .base import BaseTool
 from ..simulator import Simulator
 

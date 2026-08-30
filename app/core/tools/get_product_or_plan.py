@@ -2,6 +2,7 @@
 Tool to get a product or plan by ID.
 """
 
+from typing import Dict, Any
 from .base import BaseTool
 from ..simulator import Simulator
 

@@ -2,6 +2,7 @@
 Tool to check the status of a payment by transaction ID.
 """
 
+from typing import Dict, Any
 from .base import BaseTool
 from ..simulator import Simulator
 from app.core.config import get_settings
