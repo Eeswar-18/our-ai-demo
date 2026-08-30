@@ -1,7 +1,7 @@
 # Dockerfile for our-ai-demo V0 - Multi-stage build
 
 # Stage 1: Build frontend
-FROM node:18-alpine as frontend-builder
+FROM node:22-alpine AS frontend-builder
 WORKDIR /app/frontend
 COPY frontend/package*.json ./
 RUN npm ci
