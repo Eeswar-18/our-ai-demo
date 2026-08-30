@@ -302,59 +302,57 @@ class Orchestrator:
         """
         intent = orchestrator_state["intent"]
         user_message = orchestrator_state["user_message"]
-        conversation_history = self.conversation_history
         tool_executions = orchestrator_state["tool_executions"]
         verification_results = orchestrator_state["verification_results"]
 
         # Get the business context
         business_context_str = self.business_context.format_context_for_prompt()
-        # Prepare the context for the AI provider
-        context = {
-            "user_message": user_message,
-            "conversation_history": self.conversation_history,
-            "tool_executions": tool_executions,
-            "verification_results": verification_results,
-            "intent": intent,
-            "simulator_state": {
-                # We could include some relevant state from the simulator here
-            },
-        }
 
-        # Use the AI provider to generate a response
-        # We'll use a structured output or just a text response depending on the complexity
-        # For simplicity, we'll ask for a text response.
+        # Build a clean summary of tool results for the prompt
+        tool_summary = self._summarize_tool_results(tool_executions)
+        verified = all(
+            v.get("goal_achieved", False) for v in verification_results
+        ) if verification_results else False
+
         prompt = f"""
-        You are a helpful and friendly customer support agent for a business.
-        Based on the following information, generate a natural, helpful, and friendly response to the user.
+        You are a customer support agent. Generate ONLY a final customer-facing response.
+
+        CRITICAL RULES:
+        - Output ONLY the final response the customer should see.
+        - Do NOT include any thinking process, analysis, reasoning steps, chain-of-thought, or internal deliberation.
+        - Do NOT use headings like "Analysis", "Steps", "Thinking", "Plan", or similar.
+        - Do NOT explain how you arrived at the answer.
+        - Do NOT reveal tool names, technical details, or internal system information.
+        - Respond as a natural, friendly, human-like customer support agent.
+        - Keep the response concise — 1 to 3 short paragraphs maximum.
 
         Business Context:
         {business_context_str}
 
-        User message: {user_message}
-        Intent: {intent}
-        Tool executions: {tool_executions}
-        Verification results: {verification_results}
+        Customer asked: "{user_message}"
+        Detected intent: {intent}
+        What the system found: {tool_summary}
+        Action verified: {"Yes" if verified else "No"}
 
-        Guidelines:
-        - If the user's request was successful, confirm what was done and provide the relevant information.
-        - If the user's request failed, explain what went wrong and suggest next steps.
-        - If you need more information, ask clarifying questions.
-        - Always be polite, empathetic, and professional.
-        - Do not reveal internal technical details unless necessary.
-        - If the issue requires human intervention, suggest escalating to a human agent.
-        - Keep the response concise and to the point.
-
-        Generate the response now.
+        Now write ONLY the customer-facing response:
         """
 
-        # We'll use the generate_response method without streaming for simplicity
         response_text = await self.ai_provider.generate_response(
             prompt=prompt,
-            system="You are a helpful and friendly customer support agent.",
+            system=(
+                "You are a friendly customer support agent. "
+                "Output ONLY the final customer-facing message. "
+                "NEVER output your thinking process, reasoning steps, or internal analysis. "
+                "NEVER use markdown headers, bullet lists of steps, or structured reasoning. "
+                "Just give a clean, helpful, natural response to the customer."
+            ),
             temperature=0.7,
             max_tokens=512,
             stream=False,
         )
+
+        # Post-process: strip any leaked reasoning patterns
+        response_text = self._clean_response(response_text)
 
         response = {
             "message": response_text,
@@ -371,6 +369,124 @@ class Orchestrator:
         )
 
         return response
+
+    def _summarize_tool_results(self, tool_executions: List[Dict[str, Any]]) -> str:
+        """Build a clean, customer-facing summary from tool execution results.
+        Strips internal details and returns only useful information.
+        """
+        if not tool_executions:
+            return "No specific data was retrieved."
+
+        summaries = []
+        for exec in tool_executions:
+            tool_name = exec.get("tool_name", "unknown")
+            success = exec.get("success", False)
+            result = exec.get("result", {})
+
+            if not success:
+                error = exec.get("error", result.get("error", "Unknown error"))
+                summaries.append(f"{tool_name}: failed ({error})")
+                continue
+
+            # Extract useful data from known tool results
+            if tool_name == "get_product_or_plan":
+                plan = result.get("plan") or result.get("product") or result.get("data", {})
+                if isinstance(plan, dict):
+                    name = plan.get("name", plan.get("plan_name", ""))
+                    price = plan.get("price", plan.get("amount", ""))
+                    if name and price:
+                        summaries.append(f"Available plan: {name} at ${price}")
+                    elif name:
+                        summaries.append(f"Available plan: {name}")
+                    else:
+                        summaries.append(f"Plan information retrieved successfully")
+                else:
+                    summaries.append(f"Plan information retrieved successfully")
+            elif tool_name == "reactivate_subscription":
+                sub = result.get("subscription", {})
+                if isinstance(sub, dict):
+                    status = sub.get("status", "unknown")
+                    summaries.append(f"Subscription status: {status}")
+                else:
+                    summaries.append(f"Subscription reactivation processed")
+            elif tool_name == "check_payment_status":
+                payment = result.get("payment") or result.get("transaction", {})
+                if isinstance(payment, dict):
+                    status = payment.get("status", "unknown")
+                    summaries.append(f"Payment status: {status}")
+                else:
+                    summaries.append(f"Payment information retrieved")
+            elif tool_name == "check_subscription_status":
+                sub = result.get("subscription", {})
+                if isinstance(sub, dict):
+                    status = sub.get("status", "unknown")
+                    summaries.append(f"Subscription status: {status}")
+                else:
+                    summaries.append(f"Subscription information retrieved")
+            else:
+                summaries.append(f"{tool_name}: processed successfully")
+
+        return "; ".join(summaries) if summaries else "No specific data was retrieved."
+
+    def _clean_response(self, text: str) -> str:
+        """Post-process the AI response to strip any leaked internal reasoning.
+        Removes common chain-of-thought patterns that models sometimes output.
+        """
+        if not text:
+            return text
+
+        import re
+
+        # --- Pass 1: Remove reasoning block headers + ALL their content ---
+
+        # "Here's a thinking process:" / "Here is my reasoning:" / "Here is my analysis:"
+        # Remove the header line AND every following line until end of text.
+        # This is aggressive because these headers always precede internal reasoning.
+        text = re.sub(
+            r'(?i)(?:^|\n)\s*here(?:\'?s|\s+is)\s+(?:a\s+)?(?:my\s+)?'
+            r'(?:thinking\s+process|reasoning|analysis|thought\s+process|'
+            r'chain\s+of\s+thought|internal\s+analysis)[^\n]*\n?.*',
+            '', text, count=1
+        )
+
+        # Remove markdown header lines that indicate reasoning or internal steps
+        text = re.sub(
+            r'(?i)^\s*#{1,4}\s*(?:Analyze|Analysis|Determine|Goal|Check|Formulate|'
+            r'Step|Thinking|Reasoning|Thought|Chain|Plan|Internal|'
+            r'Evaluate|Review|Identify|Process|Consider|Thoughts|Response)[^\n]*\n?',
+            '', text, flags=re.MULTILINE
+        )
+
+        # Remove numbered reasoning steps (e.g. "1. Analyze User Input")
+        text = re.sub(
+            r'(?i)^\s*\d+\.\s*(?:Analyze|Determine|Check|Formulate|Evaluate|'
+            r'Review|Identify|Process|Consider|Gather|Understand|Thought|Plan)[^\n]*\n?',
+            '', text, flags=re.MULTILINE
+        )
+
+        # Remove inline reasoning labels on their own line
+        text = re.sub(
+            r'(?i)^\s*(?:Analysis|Reasoning|Internal\s+Thinking|Thought\s+Process|'
+            r'Chain\s+of\s+Thought|Step\s*\d+|Thinking|Thoughts)[.:]?\s*[^\n]*\n?',
+            '', text, flags=re.MULTILINE
+        )
+
+        # --- Pass 2: Strip orphaned reasoning labels at any position ---
+        text = re.sub(
+            r'(?i)^\s*(?:Analyze User Input|Determine Goal|Check Tool Result|'
+            r'Formulate Response|Internal Reasoning|Chain of Thought)[.:]?\s*\n?',
+            '', text, flags=re.MULTILINE
+        )
+
+        # --- Pass 3: Clean up whitespace ---
+        text = re.sub(r'\n{3,}', '\n\n', text)
+        text = text.strip()
+
+        # If the response is empty or too short after cleaning, return a safe fallback
+        if not text or len(text.strip()) < 5:
+            text = "I'm here to help! Could you please provide more details about what you need?"
+
+        return text
 
 
 # Factory function to create an orchestrator instance
