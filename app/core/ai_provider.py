@@ -307,9 +307,9 @@ class AnthropicProvider(AIProviderAbstract):
 
     def __init__(self):
         self.settings = get_settings()
+        self.provider = MockProvider()  # Always initialize fallback
         if not self.settings.anthropic_api_key or self.settings.anthropic_api_key == "your_anthropic_api_key_here":
             # In development, if the API key is not set or is the placeholder, we use mock
-            self.provider = MockProvider()
             self.is_mock = True
         else:
             try:
@@ -318,7 +318,6 @@ class AnthropicProvider(AIProviderAbstract):
                 self.is_mock = False
             except ImportError:
                 # Fallback to mock if anthropic package is not installed
-                self.provider = MockProvider()
                 self.is_mock = True
 
     async def generate_response(
@@ -539,9 +538,9 @@ class NVIDIAProvider(AIProviderAbstract):
 
     def __init__(self):
         self.settings = get_settings()
+        self.provider = MockProvider()  # Always initialize fallback FIRST
         if not self.settings.nvidia_api_key:
             # If API key is not set, we use mock
-            self.provider = MockProvider()
             self.is_mock = True
         else:
             # Initialize HTTP client for NVIDIA API
