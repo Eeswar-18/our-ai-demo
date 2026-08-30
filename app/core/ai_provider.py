@@ -715,51 +715,49 @@ class NVIDIAProvider(AIProviderAbstract):
         temperature: float = 0.0,
         max_tokens: int = 1024,
     ) -> Dict[str, Any]:
-        """Get a structured output from NVIDIA API."""
+        """Get a structured output from NVIDIA API.
+
+        NOTE: This method does NOT silently fall back to mock on API errors.
+        Callers (classify_intent, select_action) catch exceptions and use
+        their own proper fallback logic. Silently returning mock data here
+        would bypass that logic and return incorrect results (e.g. first
+        enum value instead of keyword-based classification).
+        """
         if self.is_mock:
             return await self.provider.structured_output(prompt, schema, system, temperature, max_tokens)
 
-        try:
-            # Prepare the request payload for JSON mode
-            payload = {
-                "model": self.settings.nvidia_model,
-                "messages": [],
-                "temperature": temperature,
-                "max_tokens": max_tokens,
-                "stream": False
-            }
+        # Prepare the request payload for JSON mode
+        payload = {
+            "model": self.settings.nvidia_model,
+            "messages": [],
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "stream": False
+        }
 
-            if system:
-                payload["messages"].append({"role": "system", "content": system})
-            payload["messages"].append({"role": "user", "content": prompt})
+        if system:
+            payload["messages"].append({"role": "system", "content": system})
+        payload["messages"].append({"role": "user", "content": prompt})
 
-            # Add guidance for JSON output
-            payload["messages"].append({
-                "role": "system",
-                "content": f"Respond with a JSON object that conforms to the following schema: {json.dumps(schema)}. Only output the JSON object, no additional text."
-            })
+        # Add guidance for JSON output
+        payload["messages"].append({
+            "role": "system",
+            "content": f"Respond with a JSON object that conforms to the following schema: {json.dumps(schema)}. Only output the JSON object, no additional text."
+        })
 
-            response = await self.client.post("/chat/completions", json=payload)
-            response.raise_for_status()
-            result = response.json()
-            text_content = result["choices"][0]["message"]["content"]
+        response = await self.client.post("/chat/completions", json=payload)
+        response.raise_for_status()
+        result = response.json()
+        text_content = result["choices"][0]["message"]["content"]
 
-            # Try to parse as JSON
-            try:
-                # Find JSON-like content in the response
-                start = text_content.find("{")
-                end = text_content.rfind("}")
-                if start != -1 and end != -1 and start < end:
-                    json_str = text_content[start : end + 1]
-                    return json.loads(json_str)
-                else:
-                    # If no JSON found, return an empty dict or raise an error
-                    raise ValueError("No JSON object found in the response")
-            except json.JSONDecodeError as e:
-                raise ValueError(f"Failed to parse JSON from response: {e}") from e
-        except Exception as e:
-            # Fallback to mock on error
-            return await self.provider.structured_output(prompt, schema, system, temperature, max_tokens)
+        # Try to parse as JSON
+        start = text_content.find("{")
+        end = text_content.rfind("}")
+        if start != -1 and end != -1 and start < end:
+            json_str = text_content[start : end + 1]
+            return json.loads(json_str)
+        else:
+            raise ValueError("No JSON object found in the NVIDIA response")
 
 
 # Factory function to get the appropriate provider
