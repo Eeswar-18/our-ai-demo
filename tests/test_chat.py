@@ -210,3 +210,86 @@ def test_chat_endpoint_business_question():
     chat._ai_provider = None
     chat._simulator = None
     chat._orchestrator = None
+
+
+def test_clean_response_strips_nvidia_reasoning():
+    """Regression: _clean_response must strip numbered reasoning steps
+    that the NVIDIA model produces before the actual customer-facing response.
+    """
+    from app.core.orchestrator import Orchestrator
+
+    o = Orchestrator.__new__(Orchestrator)
+
+    # This is the ACTUAL format the NVIDIA model produces in production
+    nvidia_output = (
+        "1. Analyze User Request:\n"
+        "- User wants me to act as a customer support agent for a business\n"
+        "- I must output ONLY the final customer-facing message\n"
+        "- No thinking process, reasoning steps, or internal analysis\n"
+        "\n"
+        "2. Determine Task:\n"
+        "- The user is asking about available plans/pricing\n"
+        "- This is a general inquiry about products/services\n"
+        "\n"
+        "3. Identify Key Information:\n"
+        "- Intent: get_product_or_plan\n"
+        "- Tool execution was successful\n"
+        "- Plan data retrieved: Basic plan at $9.99\n"
+        "\n"
+        "4. Formulate Response:\n"
+        "We currently offer a Basic plan for $9.99. I would be happy to "
+        "tell you more about its features."
+    )
+
+    cleaned = o._clean_response(nvidia_output)
+
+    # Must NOT contain any reasoning artifacts
+    reasoning_words = [
+        "analyze", "determine", "identify", "formulate", "extract",
+        "key information", "user request", "task", "thinking",
+        "reasoning", "chain of thought", "step", "must output",
+    ]
+    for word in reasoning_words:
+        assert word not in cleaned.lower(), (
+            f"Reasoning word '{word}' found in cleaned response: {cleaned}"
+        )
+
+    # Must contain the actual customer-facing response
+    assert "$9.99" in cleaned
+    assert "Basic plan" in cleaned
+
+
+def test_clean_response_strips_analysis_header():
+    """Regression: _clean_response must strip 'Here is my analysis:' blocks."""
+    from app.core.orchestrator import Orchestrator
+
+    o = Orchestrator.__new__(Orchestrator)
+
+    text = "Here is my analysis:\nThe user wants plans.\n\nWe offer a Basic plan at $9.99."
+    cleaned = o._clean_response(text)
+    assert "$9.99" in cleaned
+    assert "analysis" not in cleaned.lower()
+    assert "user wants" not in cleaned.lower()
+
+
+def test_clean_response_passes_normal_text():
+    """Regression: _clean_response must not alter normal customer responses."""
+    from app.core.orchestrator import Orchestrator
+
+    o = Orchestrator.__new__(Orchestrator)
+
+    normal = "Hi! How can I help you today? We offer a Basic plan at $9.99."
+    cleaned = o._clean_response(normal)
+    assert cleaned == normal
+
+
+def test_clean_response_handles_thinking_only():
+    """Regression: _clean_response must return fallback for thinking-only text."""
+    from app.core.orchestrator import Orchestrator
+
+    o = Orchestrator.__new__(Orchestrator)
+
+    text = "Thinking: analyzing the request..."
+    cleaned = o._clean_response(text)
+    assert len(cleaned) > 0
+    assert "thinking" not in cleaned.lower() or "help" in cleaned.lower()

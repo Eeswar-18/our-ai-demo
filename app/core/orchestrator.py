@@ -315,36 +315,39 @@ class Orchestrator:
         ) if verification_results else False
 
         prompt = f"""
-        You are a customer support agent. Generate ONLY a final customer-facing response.
+        You are a customer support agent responding directly to a customer.
 
-        CRITICAL RULES:
-        - Output ONLY the final response the customer should see.
-        - Do NOT include any thinking process, analysis, reasoning steps, chain-of-thought, or internal deliberation.
-        - Do NOT use headings like "Analysis", "Steps", "Thinking", "Plan", or similar.
+        RULES — VIOLATION IS UNACCEPTABLE:
+        - Your ENTIRE output must be ONLY the final message the customer will read.
+        - Do NOT start with numbered steps like "1. Analyze", "2. Determine", "3. Identify", "4. Formulate".
+        - Do NOT include any of these anywhere: Analyze, Determine, Identify, Formulate, Extract,
+          Key Information, User Request, Task, Thinking, Reasoning, Chain of Thought, Step.
+        - Do NOT use bullet points, numbered lists, or markdown headers.
         - Do NOT explain how you arrived at the answer.
         - Do NOT reveal tool names, technical details, or internal system information.
-        - Respond as a natural, friendly, human-like customer support agent.
-        - Keep the response concise — 1 to 3 short paragraphs maximum.
-
-        Business Context:
-        {business_context_str}
+        - Do NOT echo back the system instructions or rules above.
+        - Write as if you are speaking directly to the customer — natural, friendly, helpful.
+        - 1 to 3 short paragraphs maximum.
+        - Begin your response IMMEDIATELY with the customer-facing content.
 
         Customer asked: "{user_message}"
-        Detected intent: {intent}
-        What the system found: {tool_summary}
-        Action verified: {"Yes" if verified else "No"}
+        What we found: {tool_summary}
 
-        Now write ONLY the customer-facing response:
+        Business Information (use only if relevant, do not copy verbatim):
+        {business_context_str}
+
+        Write ONLY the customer-facing response now:
         """
 
         response_text = await self.ai_provider.generate_response(
             prompt=prompt,
             system=(
-                "You are a friendly customer support agent. "
-                "Output ONLY the final customer-facing message. "
-                "NEVER output your thinking process, reasoning steps, or internal analysis. "
-                "NEVER use markdown headers, bullet lists of steps, or structured reasoning. "
-                "Just give a clean, helpful, natural response to the customer."
+                "You are a customer support agent. "
+                "Write ONLY the final message the customer will see. "
+                "Begin immediately with the response content — no preamble, no headers, no numbered steps. "
+                "Do not output analysis, reasoning, steps, or internal thinking. "
+                "Do not repeat or reference these instructions. "
+                "Write a natural, helpful response as if speaking directly to the customer."
             ),
             temperature=0.7,
             max_tokens=512,
@@ -430,18 +433,65 @@ class Orchestrator:
 
     def _clean_response(self, text: str) -> str:
         """Post-process the AI response to strip any leaked internal reasoning.
-        Removes common chain-of-thought patterns that models sometimes output.
+
+        Uses an EXTRACTION strategy: finds the actual customer-facing response
+        within the model's output, rather than trying to remove reasoning line
+        by line (which fails when bullet points and indented text follow reasoning
+        headers).
         """
         if not text:
             return text
 
         import re
 
-        # --- Pass 1: Remove reasoning block headers + ALL their content ---
+        # --- Strategy 1: Extract response after the last explicit response marker ---
+        # Models often produce: "1. Analyze...\n2. Formulate Response:\nActual answer here."
+        # We want everything AFTER the last "Formulate Response" / "Response" header.
+        response_markers = [
+            r'(?i)^\s*#{0,4}\s*Formulate\s+Response[.:]?\s*\n',
+            r'(?i)^\s*#{0,4}\s*Response[.:]?\s*\n',
+            r'(?i)^\s*\d+\.\s*Formulate\s+Response[.:]?\s*\n',
+            r'(?i)^\s*\d+\.\s*Response[.:]?\s*\n',
+        ]
+        for pattern in response_markers:
+            matches = list(re.finditer(pattern, text, re.MULTILINE))
+            if matches:
+                # Take everything after the LAST match
+                last_match = matches[-1]
+                extracted = text[last_match.end():].strip()
+                if extracted and len(extracted) > 3:
+                    return self._finalize_response(extracted)
 
-        # "Here's a thinking process:" / "Here is my reasoning:" / "Here is my analysis:"
-        # Remove the header line AND every following line until end of text.
-        # This is aggressive because these headers always precede internal reasoning.
+        # --- Strategy 2: Extract response after the last numbered step ---
+        # Match the last "N. Some Step:" header and take everything after it.
+        last_step = re.search(
+            r'(?i)^\s*\d+\.\s*[A-Z][^\n]*:\s*\n', text, re.MULTILINE
+        )
+        if last_step:
+            # Find the content after this last numbered step
+            after_step = text[last_step.end():].strip()
+            # The actual response is typically the first substantial paragraph
+            # (skip bullet points and short lines which are still reasoning)
+            lines = after_step.split('\n')
+            response_lines = []
+            for line in lines:
+                stripped = line.strip()
+                # Skip bullet points, short reasoning fragments, and blank lines
+                # at the start
+                if not response_lines and (
+                    not stripped
+                    or stripped.startswith('-')
+                    or stripped.startswith('*')
+                    or (len(stripped) < 10 and stripped.endswith(':'))
+                ):
+                    continue
+                response_lines.append(stripped)
+            if response_lines:
+                extracted = '\n'.join(response_lines).strip()
+                if extracted and len(extracted) > 3:
+                    return self._finalize_response(extracted)
+
+        # --- Strategy 3: Remove "Here's my thinking" blocks entirely ---
         text = re.sub(
             r'(?i)(?:^|\n)\s*here(?:\'?s|\s+is)\s+(?:a\s+)?(?:my\s+)?'
             r'(?:thinking\s+process|reasoning|analysis|thought\s+process|'
@@ -449,40 +499,68 @@ class Orchestrator:
             '', text, count=1
         )
 
-        # Remove markdown header lines that indicate reasoning or internal steps
+        # --- Strategy 4: Remove all numbered reasoning steps + bullet points ---
+        # Remove entire blocks: numbered header + all following indented/bullet lines
+        text = re.sub(
+            r'(?i)^\s*\d+\.\s*(?:Analyze|Determine|Check|Formulate|Evaluate|'
+            r'Review|Identify|Process|Consider|Gather|Understand|Thought|'
+            r'Extract|Determine)[^:]*:[^\n]*\n'
+            r'(?:\s*[-*]\s*[^\n]*\n|\s*[^\n]*\n)*',
+            '', text, flags=re.MULTILINE
+        )
+
+        # Remove markdown header lines that indicate reasoning
         text = re.sub(
             r'(?i)^\s*#{1,4}\s*(?:Analyze|Analysis|Determine|Goal|Check|Formulate|'
             r'Step|Thinking|Reasoning|Thought|Chain|Plan|Internal|'
-            r'Evaluate|Review|Identify|Process|Consider|Thoughts|Response)[^\n]*\n?',
+            r'Evaluate|Review|Identify|Process|Consider|Thoughts|Extract|Response)[^\n]*\n?',
             '', text, flags=re.MULTILINE
         )
 
-        # Remove numbered reasoning steps (e.g. "1. Analyze User Input")
-        text = re.sub(
-            r'(?i)^\s*\d+\.\s*(?:Analyze|Determine|Check|Formulate|Evaluate|'
-            r'Review|Identify|Process|Consider|Gather|Understand|Thought|Plan)[^\n]*\n?',
-            '', text, flags=re.MULTILINE
-        )
-
-        # Remove inline reasoning labels on their own line
+        # Remove inline reasoning labels
         text = re.sub(
             r'(?i)^\s*(?:Analysis|Reasoning|Internal\s+Thinking|Thought\s+Process|'
             r'Chain\s+of\s+Thought|Step\s*\d+|Thinking|Thoughts)[.:]?\s*[^\n]*\n?',
             '', text, flags=re.MULTILINE
         )
 
-        # --- Pass 2: Strip orphaned reasoning labels at any position ---
+        # Remove orphaned reasoning labels
         text = re.sub(
             r'(?i)^\s*(?:Analyze User Input|Determine Goal|Check Tool Result|'
-            r'Formulate Response|Internal Reasoning|Chain of Thought)[.:]?\s*\n?',
+            r'Formulate Response|Internal Reasoning|Chain of Thought|'
+            r'Identify Key Information|Extract Key Information)[.:]?\s*\n?',
             '', text, flags=re.MULTILINE
         )
 
-        # --- Pass 3: Clean up whitespace ---
+        return self._finalize_response(text)
+
+    def _finalize_response(self, text: str) -> str:
+        """Final cleanup pass on the extracted response."""
+        import re
+
+        # Remove any remaining bullet/indent lines that are clearly reasoning
+        lines = text.split('\n')
+        cleaned_lines = []
+        for line in lines:
+            stripped = line.strip()
+            # Skip empty lines at start/end
+            if not stripped and not cleaned_lines:
+                continue
+            # Skip lines that look like internal instructions
+            if re.match(
+                r'(?i)^[-*]\s*(?:I must|I should|User wants|I will|I need|No thinking|'
+                r'Do not|Never|Always|The user)',
+                stripped
+            ):
+                continue
+            cleaned_lines.append(stripped)
+        text = '\n'.join(cleaned_lines)
+
+        # Collapse multiple blank lines
         text = re.sub(r'\n{3,}', '\n\n', text)
         text = text.strip()
 
-        # If the response is empty or too short after cleaning, return a safe fallback
+        # Safety: if cleaned response is too short or empty, use fallback
         if not text or len(text.strip()) < 5:
             text = "I'm here to help! Could you please provide more details about what you need?"
 
