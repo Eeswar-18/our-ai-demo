@@ -28,9 +28,12 @@ class ReactivateSubscriptionTool(BaseTool):
         """
         success = self.simulator.reactivate_subscription(customer_id)
         if success:
+            # Fetch the updated subscription data so the verifier can validate it
+            subscription = self.simulator.get_subscription_by_customer_id(customer_id)
             return {
                 "success": True,
                 "message": f"Subscription for customer ID {customer_id} has been reactivated.",
+                "subscription": subscription,
             }
         else:
             return {

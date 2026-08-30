@@ -17,6 +17,9 @@ node_modules
 .env.local
 .env.*.local
 
+# Runtime database (regenerated on startup)
+data/demo.db
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
