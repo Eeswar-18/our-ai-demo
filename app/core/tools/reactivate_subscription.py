@@ -26,6 +26,22 @@ class ReactivateSubscriptionTool(BaseTool):
         Returns:
             A dictionary indicating success or failure.
         """
+        # Check current subscription status first
+        subscription = self.simulator.get_subscription_by_customer_id(customer_id)
+        if subscription is None:
+            return {
+                "success": False,
+                "error": f"No subscription found for customer ID {customer_id}.",
+            }
+
+        if subscription.get("status") == "active":
+            return {
+                "success": True,
+                "message": f"Subscription for customer ID {customer_id} is already active.",
+                "subscription": subscription,
+            }
+
+        # Subscription is inactive — attempt reactivation
         success = self.simulator.reactivate_subscription(customer_id)
         if success:
             # Fetch the updated subscription data so the verifier can validate it
