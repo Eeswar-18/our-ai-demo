@@ -44,6 +44,28 @@ Per master prompt requirements:
 - **AI Provider**: Abstract layer with Anthropic Claude as initial provider
 - **Tooling**: Standard Python packaging (virtualenv, requirements.txt)
 
+### PERFORMANCE REQUIREMENTS
+**Performance is a first-class requirement for the AI demo to feel fast and responsive.**
+- **Time-to-first-token (TTFT)**: Target < 1 second for simple requests.
+- **Simple request latency**: Target < 2 seconds end-to-end for common queries (e.g., pricing questions).
+- **Complex request latency**: Target < 5 seconds end-to-end for multi-tool flows (e.g., payment issue resolution).
+- **Streaming**: AI responses must be streamed to the client to avoid waiting for full generation.
+- **Provider fallback**: Primary provider (Anthropic) with fallback to secondary (e.g., OpenAI) if primary fails or exceeds latency thresholds.
+- **Optimization techniques**:
+  - Asynchronous FastAPI endpoints
+  - Compact, structured prompts to minimize token usage
+  - Model routing: use fastest suitable model for simple tasks, reserve stronger models for complex reasoning
+  - Persistent connections where possible (HTTP keep-alive, connection pooling)
+  - Request timeouts and graceful fallback handling
+  - Lightweight SQLite operations with proper indexing
+  - Caching of static knowledge (pricing, FAQs) to reduce AI provider calls
+- **Performance testing plan**:
+  - Load testing with simulated concurrent users (using Locust or similar)
+  - Latency benchmarks for each agent orchestration step (understand, plan, act, verify)
+  - Monitoring of AI provider call frequency and token usage per request
+  - SQLite query performance verification (EXPLAIN ANALYZE)
+  - Continuous performance monitoring in development with alerts for regression
+
 ### PROJECT STRUCTURE PROPOSAL
 ```
 our-ai-demo/
@@ -132,6 +154,11 @@ Mandatory test coverage:
 13. Unknown entities: Graceful handling of missing customers/transactions
 14. AI provider failure: Fallback behavior when API unavailable
 15. Missing configuration: Clear startup errors for missing env vars
+16. **Performance tests**:
+    - TTFT and latency benchmarks for simple and complex requests
+    - Streaming response validation
+    - Provider failover simulation
+    - Load testing with concurrent users
 - End-to-end test validating: UNDERSTAND → PLAN → ACT → OBSERVE → VERIFY → REPLAN (where applicable)
 
 ### PHASE 0 EXECUTION PLAN
@@ -152,6 +179,7 @@ Mandatory test coverage:
 - [ ] `.gitignore` and `.env.example` created
 - [ ] Initial `README.md` with project overview
 - [ ] Health check endpoint implemented and functional
+- [ ] Performance requirements documented (TTFT <1s, simple <2s, complex <5s, streaming)
 - [ ] No core feature implementation (reserved for Phase 1)
 
 ### RISKS IDENTIFIED
@@ -162,6 +190,7 @@ Mandatory test coverage:
 5. **Verification Robustness**: Building verification that doesn't become brittle or false-positive prone
 6. **Security Oversights**: Accidental secret commits or vulnerability introduction
 7. **Tool Proliferation**: Adding too many tools before validating core loop
+8. **Performance Risk**: Failure to meet latency targets due to AI provider variability or inefficient orchestration
 
 ### QUESTIONS / DECISIONS PENDING USER INPUT
 1. **Frontend Implementation**: Simple static HTML/CSS/JS vs React/Vue for chat interface?
@@ -170,6 +199,7 @@ Mandatory test coverage:
 4. **Initial Tool Set**: Which 3-4 tools to implement first for maximum demo value?
 5. **Deployment Strategy**: Dockerize immediately or keep simple local Python execution?
 6. **Testing Framework**: Standard `pytest` or unittest for Python test suite?
+7. **Performance Benchmarks**: Should we adjust latency targets based on early testing?
 
 ---
 **STATUS**: Phase 0 discovery complete. Awaiting explicit user approval to proceed to Phase 1 implementation.

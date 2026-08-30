@@ -1,0 +1,60 @@
+{
+  "business_name": "Our AI Demo Business",
+  "description": "We provide innovative AI-powered solutions for businesses of all sizes.",
+  "services": [
+    {
+      "name": "Website Development",
+      "description": "Custom website design and development",
+      "price_range": "$500 - $5000",
+      "features": [
+        "Responsive design",
+        "SEO optimized",
+        "CMS included"
+      ]
+    },
+    {
+      "name": "AI Consulting",
+      "description": "Expert advice on implementing AI in your business",
+      "price_range": "$150/hour",
+      "features": [
+        "Strategy development",
+        "Implementation roadmap",
+        "Training"
+      ]
+    },
+    {
+      "name": "Chatbot Development",
+      "description": "Custom AI chatbots for customer service and lead generation",
+      "price_range": "$1000 - $10000",
+      "features": [
+        "Natural language processing",
+        "Integration with websites and apps",
+        "Analytics"
+      ]
+    }
+  ],
+  "faqs": [
+    {
+      "question": "What is your typical project timeline?",
+      "answer": "Project timelines vary based on scope. Simple websites typically take 2-4 weeks, while more complex AI integrations can take 2-3 months."
+    },
+    {
+      "question": "Do you offer ongoing support and maintenance?",
+      "answer": "Yes, we offer monthly maintenance packages for websites and AI systems to ensure they remain up-to-date and secure."
+    },
+    {
+      "question": "What industries do you serve?",
+      "answer": "We work with businesses across various industries including retail, healthcare, finance, education, and technology."
+    }
+  ],
+  "contact_information": {
+    "email": "hello@ouraidemo.com",
+    "phone": "+1 (555) 123-4567",
+    "website": "https://ouraidemo.com"
+  },
+  "tone": "professional yet friendly, helpful and concise",
+  "policies": {
+    "refund": "We offer a 30-day money-back guarantee on our services if you're not satisfied.",
+    "support": "Standard support is available during business hours (9 AM - 5 PM EST)."
+  }
+}

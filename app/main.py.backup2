@@ -1,0 +1,22 @@
+"""
+Main FastAPI application entrypoint for our-ai-demo V0.
+Serves the frontend static files and API routes.
+"""
+
+from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
+from app.api.v1 import health, chat
+
+app = FastAPI(
+    title="our-ai-demo V0",
+    description="AI business/customer-support agent demonstration",
+    version="0.1.0"
+)
+
+# Include API routers
+app.include_router(health.router, prefix="/v1", tags=["health"])
+app.include_router(chat.router, prefix="/v1", tags=["chat"])
+
+# Mount the frontend static files
+# This will serve the React app at the root ("/")
+app.mount("/", StaticFiles(directory="frontend/dist", html=True), name="frontend")

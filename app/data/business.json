@@ -1,0 +1,13 @@
+{
+  "business_name": "Updated Business Name",
+  "description": "Updated description.",
+  "services": [],
+  "faqs": [],
+  "contact_information": {
+    "email": "test@example.com",
+    "phone": "123-456-7890",
+    "website": "https://example.com"
+  },
+  "tone": "professional",
+  "policies": {}
+}

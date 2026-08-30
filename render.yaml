@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: guidex
+    runtime: docker
+    dockerfilePath: Dockerfile
+    envVars:
+      - key: AI_PROVIDER
+        value: nvidia
+      - key: NVIDIA_API_KEY
+        sync: false
+      - key: NVIDIA_BASE_URL
+        value: https://integrate.api.nvidia.com/v1
+      - key: NVIDIA_MODEL
+        value: nemotron-3-8b-chat
+      - key: ENVIRONMENT
+        value: production
+      - key: LOG_LEVEL
+        value: INFO
+      - key: HOST
+        value: 0.0.0.0
+      - key: PORT
+        value: 8000
+      - key: SIMULATION_SEED
+        value: "12345"
+    healthCheckPath: /v1/health
+    autoDeploy: true

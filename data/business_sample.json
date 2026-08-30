@@ -1,0 +1,27 @@
+{
+  "business_name": "Sample Business for Testing",
+  "description": "This is a sample business used for testing the business context update functionality.",
+  "services": [
+    {
+      "name": "Testing Service",
+      "description": "A service for testing purposes",
+      "price_range": "$0 - $0",
+      "features": ["Testing", "Validation", "Verification"]
+    }
+  ],
+  "faqs": [
+    {
+      "question": "Is this a real business?",
+      "answer": "No, this is a sample business used for testing."
+    }
+  ],
+  "contact_information": {
+    "email": "test@example.com",
+    "phone": "000-000-0000",
+    "website": "https://example.com"
+  },
+  "tone": "professional and helpful for testing",
+  "policies": {
+    "testing": "This context is used for testing purposes only."
+  }
+}

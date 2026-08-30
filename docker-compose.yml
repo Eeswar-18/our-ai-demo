@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  our-ai-demo:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - AI_PROVIDER=${AI_PROVIDER:-nvidia}
+      - NVIDIA_API_KEY=${NVIDIA_API_KEY:-}
+      - NVIDIA_BASE_URL=${NVIDIA_BASE_URL:-https://integrate.api.nvidia.com/v1}
+      - NVIDIA_MODEL=${NVIDIA_MODEL:-nemotron-3-8b-chat}
+      - ENVIRONMENT=${ENVIRONMENT:-production}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - HOST=0.0.0.0
+      - PORT=8000
+      - SIMULATION_SEED=12345
+    volumes:
+      - ./data:/app/data:rw
+      - ./logs:/app/logs:rw
+    restart: unless-stopped
